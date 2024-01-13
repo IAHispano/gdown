@@ -24,34 +24,37 @@ home = osp.expanduser("~")
 
 def get_url_from_gdrive_confirmation(contents):
     url = ""
-    for line in contents.splitlines():
-        m = re.search(r'href="(\/uc\?export=download[^"]+)', line)
-        if m:
-            url = "https://docs.google.com" + m.groups()[0]
-            url = url.replace("&amp;", "&")
-            break
-        m = re.search('id="download-form" action="(.+?)"', line)
-        if m:
-            url = m.groups()[0]
-            url = url.replace("&amp;", "&")
-            break
-        m = re.search('"downloadUrl":"([^"]+)', line)
-        if m:
-            url = m.groups()[0]
-            url = url.replace("\\u003d", "=")
-            url = url.replace("\\u0026", "&")
-            break
-        m = re.search('<p class="uc-error-subcaption">(.*)</p>', line)
-        if m:
-            error = m.groups()[0]
-            raise FileURLRetrievalError(error)
-    if not url:
-        raise FileURLRetrievalError(
-            "Cannot retrieve the public link of the file. "
-            "You may need to change the permission to "
-            "'Anyone with the link', or have had many accesses."
-        )
-    return url
+    m = re.search(r'href="(\/uc\?export=download[^"]+)', contents)
+    if m:
+        url = "https://docs.google.com" + m.groups()[0]
+        url = url.replace("&amp;", "&")
+        return url
+
+    m = re.search(r'href="/open\?id=([^"]+)"', contents)
+    if m:
+        url = m.groups()[0]
+        uuid = re.search(r'<input\s+type="hidden"\s+name="uuid"\s+value="([^"]+)"', contents)
+        uuid = uuid.groups()[0]
+        url = "https://drive.usercontent.google.com/download?id=" + url + "&confirm=t&uuid=" + uuid
+        return url
+        
+    m = re.search(r'"downloadUrl":"([^"]+)', contents)
+    if m:
+        url = m.groups()[0]
+        url = url.replace("\\u003d", "=")
+        url = url.replace("\\u0026", "&")
+        return url
+
+    m = re.search(r'<p class="uc-error-subcaption">(.*)</p>', contents)
+    if m:
+        error = m.groups()[0]
+        raise FileURLRetrievalError(error)
+
+    raise FileURLRetrievalError(
+        "Cannot retrieve the public link of the file. "
+        "You may need to change the permission to "
+        "'Anyone with the link', or have had many accesses."
+    )
 
 
 def _get_session(proxy, use_cookies, return_cookies_file=False):
@@ -240,6 +243,8 @@ def download(
             res.headers["Content-Disposition"]
         )
         m = re.search(r"filename\*=UTF-8''(.*)", content_disposition)
+        if not m:
+            m = re.search(r'filename=["\']?(.*?)["\']?$', content_disposition)
         filename_from_url = m.groups()[0]
         filename_from_url = filename_from_url.replace(osp.sep, "_")
     else:
@@ -297,11 +302,11 @@ def download(
         print("Downloading...", file=sys.stderr)
         if resume:
             print("Resume:", tmp_file, file=sys.stderr)
-        if url_origin != url:
-            print("From (original):", url_origin, file=sys.stderr)
-            print("From (redirected):", url, file=sys.stderr)
-        else:
-            print("From:", url, file=sys.stderr)
+        # if url_origin != url:
+        #     print("From (original):", url_origin, file=sys.stderr)
+        #     print("From (redirected):", url, file=sys.stderr)
+        # else:
+        #     print("From:", url, file=sys.stderr)
         print(
             "To:",
             osp.abspath(output) if output_is_path else output,
