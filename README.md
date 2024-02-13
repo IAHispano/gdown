@@ -126,7 +126,7 @@ In linux :
 /root/.cache/gdown/cookies.json
 ```
 
-And only the two elements, i.e. the name and the value
+Remember that you must obtain all the cookies and each one must have only two elements, i.e. the name and the value
 
 Example:
 ![image](https://github.com/IAHispano/gdown/assets/102625768/17654903-dc2b-496c-a6bc-c5b111b64394)
