@@ -117,6 +117,22 @@ gdown.download_folder(url, quiet=True, use_cookies=False)
 id = "15uNXeRBIhVvZJIhL4yTw4IsStMhUaaxl"
 gdown.download_folder(id=id, quiet=True, use_cookies=False)
 ```
+## Where to set google cookies
+
+```python
+In Windows :
+C:\Users\Vidal\.cache\gdown
+In linux : 
+/root/.cache/gdown/cookies.json
+```
+
+And only the two elements, i.e. the name and the value
+
+Example:
+
+
+In Json:
+
 
 
 ## License

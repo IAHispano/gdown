@@ -30,14 +30,18 @@ def get_url_from_gdrive_confirmation(contents):
         url = url.replace("&amp;", "&")
         return url
 
-    m = re.search(r'href="/open\?id=([^"]+)"', contents)
+    m = re.search(r'<input\s+type="hidden"\s+name="id"\s+value="([^"]+)"', contents)
     if m:
         url = m.groups()[0]
         uuid = re.search(r'<input\s+type="hidden"\s+name="uuid"\s+value="([^"]+)"', contents)
         uuid = uuid.groups()[0]
-        url = "https://drive.usercontent.google.com/download?id=" + url + "&confirm=t&uuid=" + uuid
+        m_ = re.search(r'<input\s+type="hidden"\s+name="at"\s+value="([^"]+)"', contents)
+        url = "https://drive.usercontent.google.com/download?id=" + url + "&export=download&authuser=0&confirm=t&uuid=" + uuid
+        if m_:
+            at = m_.groups()[0]
+            url = url + "&at=" + at
         return url
-        
+    
     m = re.search(r'"downloadUrl":"([^"]+)', contents)
     if m:
         url = m.groups()[0]
