@@ -121,20 +121,21 @@ gdown.download_folder(id=id, quiet=True, use_cookies=False)
 
 ```python
 In Windows :
-C:\Users\Vidal\.cache\gdown\cookies.json
+C:\Users\Vidal\.cache\gdown\cookies.txt
 In linux : 
-/root/.cache/gdown/cookies.json
+/root/.cache/gdown/cookies.txt
 ```
 
-Remember that you must obtain all the cookies and each one must have only two elements, i.e. the name and the value
+Google restricts access to a file when the download is concentrated.
+If you can still access to the file from your browser, downloading cookies file might
+help. 
+Follow this step: 
+1) download cookies.txt using browser extensions like
+([Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc));
+2) mv the `cookies.txt` to `~/.cache/gdown/cookies.txt`; 
+3) run download again.
 
-Example:
-
-![image](https://github.com/IAHispano/gdown/assets/102625768/8a5970fd-1c55-4bb1-a355-e588f2778b6f)
-
-In Json:
-
-![image](https://github.com/IAHispano/gdown/assets/102625768/2cda13e7-2f7e-4c0c-9003-93dad2a0e140)
+**Credits for wkentaro for all**
 
 ## License
 

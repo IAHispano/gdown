@@ -17,7 +17,7 @@ import tqdm
 from ._indent import indent
 from .exceptions import FileURLRetrievalError
 from .parse_url import parse_url
-
+from http.cookiejar import MozillaCookieJar
 CHUNK_SIZE = 512 * 1024  # 512KB
 home = osp.expanduser("~")
 
@@ -73,12 +73,11 @@ def _get_session(proxy, use_cookies, return_cookies_file=False):
         print("Using proxy:", proxy, file=sys.stderr)
 
     # Load cookies if exists
-    cookies_file = osp.join(home, ".cache/gdown/cookies.json")
-    if osp.exists(cookies_file) and use_cookies:
-        with open(cookies_file) as f:
-            cookies = json.load(f)
-        for k, v in cookies:
-            sess.cookies[k] = v
+    cookies_file = osp.join(home, ".cache/gdown/cookies.txt")
+    if use_cookies and osp.exists(cookies_file):
+        cookie_jar = MozillaCookieJar(cookies_file)
+        cookie_jar.load()
+        sess.cookies.update(cookie_jar)
 
     if return_cookies_file:
         return sess, cookies_file
@@ -210,16 +209,10 @@ def download(
             continue
 
         if use_cookies:
-            if not osp.exists(osp.dirname(cookies_file)):
-                os.makedirs(osp.dirname(cookies_file))
-            # Save cookies
-            with open(cookies_file, "w") as f:
-                cookies = [
-                    (k, v)
-                    for k, v in sess.cookies.items()
-                    if not k.startswith("download_warning_")
-                ]
-                json.dump(cookies, f, indent=2)
+            cookie_jar = MozillaCookieJar(cookies_file)
+            for cookie in sess.cookies:
+                cookie_jar.set_cookie(cookie)
+            cookie_jar.save()
 
         if "Content-Disposition" in res.headers:
             # This is the file
