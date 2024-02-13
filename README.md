@@ -121,7 +121,7 @@ gdown.download_folder(id=id, quiet=True, use_cookies=False)
 
 ```python
 In Windows :
-C:\Users\Vidal\.cache\gdown
+C:\Users\Vidal\.cache\gdown\cookies.json
 In linux : 
 /root/.cache/gdown/cookies.json
 ```
