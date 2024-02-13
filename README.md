@@ -129,11 +129,10 @@ In linux :
 And only the two elements, i.e. the name and the value
 
 Example:
-
+![image](https://github.com/IAHispano/gdown/assets/102625768/17654903-dc2b-496c-a6bc-c5b111b64394)
 
 In Json:
-
-
+![image](https://github.com/IAHispano/gdown/assets/102625768/2cda13e7-2f7e-4c0c-9003-93dad2a0e140)
 
 ## License
 
