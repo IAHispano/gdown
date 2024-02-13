@@ -2,7 +2,6 @@
 ### Download large files from Google Drive effortlessly.
 ![PyPI Version](https://img.shields.io/pypi/v/gdown.svg)
 ![Supported Python Versions](https://img.shields.io/pypi/pyversions/gdown.svg)
-![CI](https://github.com/IAHispano/gdown/workflows/ci/badge.svg)
 
 > [!IMPORTANT]  
 Google's restrictions sometimes require using cookies for successful downloads. If direct access to a file is still possible via a browser, you can download the cookies file (`cookies.txt`) and place it in `~/.cache/gdown/cookies.txt`. Then re-run the download command.
