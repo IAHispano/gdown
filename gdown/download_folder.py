@@ -1,7 +1,4 @@
-# -*- encoding: utf-8 -*-
-
-from __future__ import print_function
-
+import collections
 import itertools
 import json
 import os
@@ -9,12 +6,15 @@ import os.path as osp
 import re
 import sys
 import warnings
+from typing import List
+from typing import Union
 
 import bs4
 
 from .download import _get_session
 from .download import download
 from .exceptions import FolderContentsMaximumLimitError
+from .parse_url import is_google_drive_url
 
 MAX_NUMBER_FILES = 50
 
@@ -44,25 +44,20 @@ def _parse_google_drive_file(url, content):
 
         if "_DRIVE_ivd" in inner_html:
             # first js string is _DRIVE_ivd, the second one is the encoded arr
-            regex_iter = re.compile(r"'((?:[^'\\]|\\.)*)'").finditer(
-                inner_html
-            )
+            regex_iter = re.compile(r"'((?:[^'\\]|\\.)*)'").finditer(inner_html)
             # get the second elem in the iter
             try:
-                encoded_data = next(
-                    itertools.islice(regex_iter, 1, None)
-                ).group(1)
+                encoded_data = next(itertools.islice(regex_iter, 1, None)).group(1)
             except StopIteration:
-                raise RuntimeError(
-                    "Couldn't find the folder encoded JS string"
-                )
+                raise RuntimeError("Couldn't find the folder encoded JS string")
             break
 
     if encoded_data is None:
         raise RuntimeError(
             "Cannot retrieve the folder information from the link. "
             "You may need to change the permission to "
-            "'Anyone with the link'."
+            "'Anyone with the link', or have had many accesses. "
+            "Check FAQ in https://github.com/wkentaro/gdown?tab=readme-ov-file#faq.",
         )
 
     # decodes the array and evaluates it as a python array
@@ -109,16 +104,26 @@ def _download_and_parse_google_drive_link(
 
     return_code = True
 
-    # canonicalize the language into English
-    if "?" in url:
-        url += "&hl=en"
-    else:
-        url += "?hl=en"
+    for _ in range(2):
+        if is_google_drive_url(url):
+            # canonicalize the language into English
+            if "?" in url:
+                url += "&hl=en"
+            else:
+                url += "?hl=en"
 
-    res = sess.get(url, verify=verify)
+        res = sess.get(url, verify=verify)
+        if res.status_code != 200:
+            return False, None
 
-    if res.status_code != 200:
-        return False, None
+        if is_google_drive_url(url):
+            break
+
+        if not is_google_drive_url(res.url):
+            break
+
+        # need to try with canonicalized url if the original url redirects to gdrive
+        url = res.url
 
     gdrive_file, id_name_type_iter = _parse_google_drive_file(
         url=url,
@@ -179,18 +184,17 @@ def _get_directory_structure(gdrive_file, previous_path):
     for file in gdrive_file.children:
         file.name = file.name.replace(osp.sep, "_")
         if file.is_folder():
-            directory_structure.append(
-                (None, osp.join(previous_path, file.name))
-            )
-            for i in _get_directory_structure(
-                file, osp.join(previous_path, file.name)
-            ):
+            directory_structure.append((None, osp.join(previous_path, file.name)))
+            for i in _get_directory_structure(file, osp.join(previous_path, file.name)):
                 directory_structure.append(i)
         elif not file.children:
-            directory_structure.append(
-                (file.id, osp.join(previous_path, file.name))
-            )
+            directory_structure.append((file.id, osp.join(previous_path, file.name)))
     return directory_structure
+
+
+GoogleDriveFileToDownload = collections.namedtuple(
+    "GoogleDriveFileToDownload", ("id", "path", "local_path")
+)
 
 
 def download_folder(
@@ -203,7 +207,9 @@ def download_folder(
     use_cookies=True,
     remaining_ok=False,
     verify=True,
-):
+    user_agent=None,
+    skip_download: bool = False,
+) -> Union[List[str], List[GoogleDriveFileToDownload], None]:
     """Downloads entire folder from URL.
 
     Parameters
@@ -228,11 +234,18 @@ def download_folder(
         Either a bool, in which case it controls whether the server's TLS
         certificate is verified, or a string, in which case it must be a path
         to a CA bundle to use. Default is True.
+    user_agent: str, optional
+        User-agent to use in the HTTP request.
+    skip_download: bool, optional
+        If True, return the list of files to download without downloading them.
+        Defaults to False.
 
     Returns
     -------
-    filenames: list of str
-        List of files downloaded, or None if failed.
+    files: List[str] or List[GoogleDriveFileToDownload] or None
+        If dry_run is False, list of local file paths downloaded or None if failed.
+        If dry_run is True, list of GoogleDriveFileToDownload that contains
+        id, path, and local_path.
 
     Example
     -------
@@ -245,58 +258,69 @@ def download_folder(
         raise ValueError("Either url or id has to be specified")
     if id is not None:
         url = "https://drive.google.com/drive/folders/{id}".format(id=id)
+    if user_agent is None:
+        # We need to use different user agent for folder download c.f., file
+        user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36"  # NOQA: E501
 
-    sess = _get_session(proxy=proxy, use_cookies=use_cookies)
+    sess = _get_session(proxy=proxy, use_cookies=use_cookies, user_agent=user_agent)
 
     if not quiet:
         print("Retrieving folder contents", file=sys.stderr)
-    return_code, gdrive_file = _download_and_parse_google_drive_link(
+    is_success, gdrive_file = _download_and_parse_google_drive_link(
         sess,
         url,
         quiet=quiet,
         remaining_ok=remaining_ok,
         verify=verify,
     )
+    if not is_success:
+        print("Failed to retrieve folder contents", file=sys.stderr)
+        return None
 
-    if not return_code:
-        return return_code
     if not quiet:
         print("Retrieving folder contents completed", file=sys.stderr)
         print("Building directory structure", file=sys.stderr)
+    directory_structure = _get_directory_structure(gdrive_file, previous_path="")
+    if not quiet:
+        print("Building directory structure completed", file=sys.stderr)
+
     if output is None:
         output = os.getcwd() + osp.sep
     if output.endswith(osp.sep):
-        root_folder = osp.join(output, gdrive_file.name)
+        root_dir = osp.join(output, gdrive_file.name)
     else:
-        root_folder = output
-    directory_structure = _get_directory_structure(gdrive_file, root_folder)
-    if not osp.exists(root_folder):
-        os.makedirs(root_folder)
+        root_dir = output
+    if not skip_download and not osp.exists(root_dir):
+        os.makedirs(root_dir)
 
-    if not quiet:
-        print("Building directory structure completed")
-    filenames = []
-    for file_id, file_path in directory_structure:
-        if file_id is None:  # folder
-            if not osp.exists(file_path):
-                os.makedirs(file_path)
+    files = []
+    for id, path in directory_structure:
+        local_path = osp.join(root_dir, path)
+
+        if id is None:  # folder
+            if not skip_download and not osp.exists(local_path):
+                os.makedirs(local_path)
             continue
 
-        filename = download(
-            url="https://drive.google.com/uc?id=" + file_id,
-            output=file_path,
-            quiet=quiet,
-            proxy=proxy,
-            speed=speed,
-            use_cookies=use_cookies,
-            verify=verify,
-        )
-
-        if filename is None:
-            if not quiet:
-                print("Download ended unsuccessfully", file=sys.stderr)
-            return
-        filenames.append(filename)
+        if skip_download:
+            files.append(
+                GoogleDriveFileToDownload(id=id, path=path, local_path=local_path)
+            )
+        else:
+            local_path = download(
+                url="https://drive.google.com/uc?id=" + id,
+                output=local_path,
+                quiet=quiet,
+                proxy=proxy,
+                speed=speed,
+                use_cookies=use_cookies,
+                verify=verify,
+            )
+            if local_path is None:
+                if not quiet:
+                    print("Download ended unsuccessfully", file=sys.stderr)
+                return None
+            files.append(local_path)
     if not quiet:
         print("Download completed", file=sys.stderr)
-    return filenames
+    return files

@@ -6,6 +6,7 @@ import os.path as osp
 import shutil
 import sys
 import tempfile
+from typing import Optional
 
 import filelock
 
@@ -32,24 +33,26 @@ def md5sum(filename, blocksize=None):
 
 def assert_md5sum(filename, md5, quiet=False, blocksize=None):
     if not (isinstance(md5, str) and len(md5) == 32):
-        raise ValueError("MD5 must be 32 chars: {}".format(md5))
+        raise ValueError(f"MD5 must be 32 chars: {md5}")
 
-    if not quiet:
-        print("Computing MD5: {}".format(filename))
     md5_actual = md5sum(filename)
 
     if md5_actual == md5:
         if not quiet:
-            print("MD5 matches: {}".format(filename))
+            print(f"MD5 matches: {filename!r} == {md5!r}", file=sys.stderr)
         return True
 
-    raise AssertionError(
-        "MD5 doesn't match:\nactual: {}\nexpected: {}".format(md5_actual, md5)
-    )
+    raise AssertionError(f"MD5 doesn't match:\nactual: {md5_actual}\nexpected: {md5}")
 
 
 def cached_download(
-    url=None, path=None, md5=None, quiet=False, postprocess=None, **kwargs
+    url=None,
+    path=None,
+    md5=None,
+    quiet=False,
+    postprocess=None,
+    hash: Optional[str] = None,
+    **kwargs,
 ):
     """Cached download from URL.
 
@@ -60,11 +63,14 @@ def cached_download(
     path: str, optional
         Output filename. Default is basename of URL.
     md5: str, optional
-        Expected MD5 for specified file.
+        Expected MD5 for specified file. Deprecated in favor of `hash`.
     quiet: bool
         Suppress terminal output. Default is False.
-    postprocess: callable
+    postprocess: callable, optional
         Function called with filename as postprocess.
+    hash: str, optional
+        Hash value of file in the format of {algorithm}:{hash_value}
+        such as sha256:abcdef.... Supported algorithms: md5, sha1, sha256, sha512.
     kwargs: dict
         Keyword arguments to be passed to `download`.
 
@@ -82,14 +88,21 @@ def cached_download(
         )
         path = osp.join(cache_root, path)
 
+    if md5 is not None and hash is not None:
+        raise ValueError("md5 and hash cannot be specified at the same time.")
+
+    if md5 is not None:
+        hash = f"md5:{md5}"
+    del md5
+
     # check existence
-    if osp.exists(path) and not md5:
+    if osp.exists(path) and not hash:
         if not quiet:
-            print("File exists: {}".format(path))
+            print(f"File exists: {path}", file=sys.stderr)
         return path
-    elif osp.exists(path) and md5:
+    elif osp.exists(path) and hash:
         try:
-            assert_md5sum(path, md5, quiet=quiet)
+            _assert_filehash(path=path, hash=hash, quiet=quiet)
             return path
         except AssertionError as e:
             # show warning and overwrite if md5 doesn't match
@@ -105,26 +118,62 @@ def cached_download(
     try:
         temp_path = osp.join(temp_root, "dl")
 
-        if not quiet:
-            msg = "Cached Downloading"
-            if path:
-                msg = "{}: {}".format(msg, path)
-            else:
-                msg = "{}...".format(msg)
-            print(msg, file=sys.stderr)
-
-        download(url, temp_path, quiet=quiet, **kwargs)
+        log_message_hash = f"Hash: {hash}\n" if hash else ""
+        download(
+            url=url,
+            output=temp_path,
+            quiet=quiet,
+            log_messages={
+                "start": f"Cached downloading...\n{log_message_hash}",
+                "output": f"To: {path}\n",
+            },
+            **kwargs,
+        )
         with filelock.FileLock(lock_path):
             shutil.move(temp_path, path)
     except Exception:
         shutil.rmtree(temp_root)
         raise
 
-    if md5:
-        assert_md5sum(path, md5, quiet=quiet)
+    if hash:
+        _assert_filehash(path=path, hash=hash, quiet=quiet)
 
     # postprocess
     if postprocess is not None:
         postprocess(path)
 
     return path
+
+
+def _compute_filehash(path, algorithm):
+    BLOCKSIZE = 65536
+
+    if algorithm not in hashlib.algorithms_guaranteed:
+        raise ValueError(
+            f"Unsupported hash algorithm: {algorithm}. "
+            f"Supported algorithms: {hashlib.algorithms_guaranteed}"
+        )
+
+    algorithm_instance = getattr(hashlib, algorithm)()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(BLOCKSIZE), b""):
+            algorithm_instance.update(block)
+    return f"{algorithm}:{algorithm_instance.hexdigest()}"
+
+
+def _assert_filehash(path, hash, quiet=False, blocksize=None):
+    if ":" not in hash:
+        raise ValueError(
+            f"Invalid hash: {hash}. "
+            "Hash must be in the format of {algorithm}:{hash_value}."
+        )
+    algorithm = hash.split(":")[0]
+
+    hash_actual = _compute_filehash(path=path, algorithm=algorithm)
+
+    if hash_actual == hash:
+        return True
+
+    raise AssertionError(
+        f"File hash doesn't match:\nactual: {hash_actual}\nexpected: {hash}"
+    )

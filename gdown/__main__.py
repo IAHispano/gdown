@@ -1,5 +1,3 @@
-from __future__ import print_function
-
 import argparse
 import os.path
 import re
@@ -8,7 +6,6 @@ import textwrap
 import warnings
 
 import requests
-import six
 
 from . import __version__
 from ._indent import indent
@@ -90,7 +87,7 @@ def main():
     parser.add_argument(
         "--no-cookies",
         action="store_true",
-        help="don't use cookies in ~/.cache/gdown/cookies.json",
+        help="don't use cookies in ~/.cache/gdown/cookies.txt",
     )
     parser.add_argument(
         "--no-check-certificate",
@@ -121,14 +118,15 @@ def main():
         help="Format of Google Docs, Spreadsheets and Slides. "
         "Default is Google Docs: 'docx', Spreadsheet: 'xlsx', Slides: 'pptx'.",
     )
+    parser.add_argument(
+        "--user-agent",
+        help="User-Agent to use for downloading file.",
+    )
 
     args = parser.parse_args()
 
     if args.output == "-":
-        if six.PY3:
-            args.output = sys.stdout.buffer
-        else:
-            args.output = sys.stdout
+        args.output = sys.stdout.buffer
 
     if args.id:
         warnings.warn(
@@ -159,6 +157,7 @@ def main():
                 use_cookies=not args.no_cookies,
                 verify=not args.no_check_certificate,
                 remaining_ok=args.remaining_ok,
+                user_agent=args.user_agent,
             )
         else:
             download(
@@ -173,6 +172,7 @@ def main():
                 fuzzy=args.fuzzy,
                 resume=args.continue_,
                 format=args.format,
+                user_agent=args.user_agent,
             )
     except FileURLRetrievalError as e:
         print(e, file=sys.stderr)
@@ -188,8 +188,7 @@ def main():
         sys.exit(1)
     except requests.exceptions.ProxyError as e:
         print(
-            "Failed to use proxy:\n\n{}\n\n"
-            "Please check your proxy settings.".format(
+            "Failed to use proxy:\n\n{}\n\n" "Please check your proxy settings.".format(
                 indent("\n".join(textwrap.wrap(str(e))), prefix="\t")
             ),
             file=sys.stderr,

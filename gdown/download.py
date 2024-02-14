@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-import json
+
 import os
 import os.path as osp
 import re
@@ -13,6 +13,7 @@ import time
 import requests
 import six
 import tqdm
+import bs4
 
 from ._indent import indent
 from .exceptions import FileURLRetrievalError
@@ -42,6 +43,18 @@ def get_url_from_gdrive_confirmation(contents):
             url = url + "&at=" + at
         return url
     
+    soup = bs4.BeautifulSoup(contents, features="html.parser")
+    form = soup.select_one("#download-form")
+    if form is not None:
+        url = form["action"].replace("&amp;", "&")
+        url_components = six.moves.urllib_parse.urlsplit(url)
+        query_params = six.moves.urllib_parse.parse_qs(url_components.query)
+        for param in form.findChildren("input", attrs={"type": "hidden"}):
+            query_params[param["name"]] = param["value"]
+        query = six.moves.urllib_parse.urlencode(query_params, doseq=True)
+        url = six.moves.urllib_parse.urlunsplit(url_components._replace(query=query))
+        return url
+    
     m = re.search(r'"downloadUrl":"([^"]+)', contents)
     if m:
         url = m.groups()[0]
@@ -61,12 +74,10 @@ def get_url_from_gdrive_confirmation(contents):
     )
 
 
-def _get_session(proxy, use_cookies, return_cookies_file=False):
+def _get_session(proxy, use_cookies, user_agent, return_cookies_file=False):
     sess = requests.session()
 
-    sess.headers.update(
-        {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6)"}
-    )
+    sess.headers.update({"User-Agent": user_agent})
 
     if proxy is not None:
         sess.proxies = {"http": proxy, "https": proxy}
@@ -88,7 +99,7 @@ def _get_session(proxy, use_cookies, return_cookies_file=False):
 def download(
     url=None,
     output=None,
-    quiet=False,
+    quiet=True,
     proxy=None,
     speed=None,
     use_cookies=True,
@@ -97,6 +108,8 @@ def download(
     fuzzy=False,
     resume=False,
     format=None,
+    user_agent=None,
+    log_messages=None,
 ):
     """Download file from URL.
 
@@ -130,6 +143,12 @@ def download(
             - Google Docs: 'docx'
             - Google Spreadsheet: 'xlsx'
             - Google Slides: 'pptx'
+    user_agent: str, optional
+        User-agent to use in the HTTP request.
+    log_messages: dict, optional
+        Log messages to customize. Currently it supports:
+        - 'start': the message to show the start of the download
+        - 'output': the message to show the output filename
 
     Returns
     -------
@@ -141,10 +160,19 @@ def download(
     if id is not None:
         url = "https://drive.google.com/uc?id={id}".format(id=id)
 
+    if user_agent is None:
+        user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36"  # NOQA: E501
+
+    if log_messages is None:
+        log_messages = {}
+
     url_origin = url
 
     sess, cookies_file = _get_session(
-        proxy=proxy, use_cookies=use_cookies, return_cookies_file=True
+        proxy=proxy,
+        use_cookies=use_cookies,
+        user_agent=user_agent,
+        return_cookies_file=True,
     )
 
     gdrive_file_id, is_gdrive_download_link = parse_url(url, warning=not fuzzy)
@@ -296,18 +324,20 @@ def download(
         res = sess.get(url, headers=headers, stream=True, verify=verify)
 
     if not quiet:
-        print("Downloading...", file=sys.stderr)
+        print(log_messages.get("start", "Downloading...\n"), file=sys.stderr, end="")
         if resume:
             print("Resume:", tmp_file, file=sys.stderr)
-        # if url_origin != url:
-        #     print("From (original):", url_origin, file=sys.stderr)
-        #     print("From (redirected):", url, file=sys.stderr)
-        # else:
-        #     print("From:", url, file=sys.stderr)
+        if url_origin != url:
+            print("From (original):", url_origin, file=sys.stderr)
+            print("From (redirected):", url, file=sys.stderr)
+        else:
+            print("From:", url, file=sys.stderr)
         print(
-            "To:",
-            osp.abspath(output) if output_is_path else output,
+            log_messages.get(
+                "output", f"To: {osp.abspath(output) if output_is_path else output}\n"
+            ),
             file=sys.stderr,
+            end="",
         )
 
     try:

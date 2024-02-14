@@ -3,6 +3,9 @@ import warnings
 
 from six.moves import urllib_parse
 
+def is_google_drive_url(url):
+    parsed = urllib_parse.urlparse(url)
+    return parsed.hostname in ["drive.google.com", "docs.google.com"]
 
 def parse_url(url, warning=True):
     """Parse URLs especially for Google Drive links.
